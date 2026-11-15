@@ -1709,12 +1709,19 @@ class Handler(BaseHTTPRequestHandler):
     def handle_any(self, method):
         u = urlparse(self.path)
         q = parse_qs(u.query)
+        # Vercel rewrites every path to /api/index; the original rides along as __path.
+        if "__path" in q:
+            u = u._replace(path=q.pop("__path")[0] or "/")
         try:
             if method == "GET" and not u.path.startswith("/api/"):
                 path = os.path.normpath(os.path.join(STATIC, (u.path.lstrip("/") or "index.html")))
                 if not path.startswith(STATIC) or not os.path.isfile(path):
                     return self.send(404, {"error": "not found"})
-                ctype = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".ttf": "font/ttf"}.get(os.path.splitext(path)[1], "application/octet-stream")
+                ext = os.path.splitext(path)[1]
+                img = {".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/png"}.get(ext)
+                if img:
+                    return self.send(200, open(path, "rb").read(), img, {"Cache-Control": "max-age=86400"})
+                ctype = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".ttf": "font/ttf"}.get(ext, "application/octet-stream")
                 return self.send(200, open(path, "rb").read(), ctype + "; charset=utf-8", {"Cache-Control": "no-cache"})
             if u.path == "/api/fonts":
                 return self.send(200, doc_fonts())
