@@ -68,7 +68,10 @@ def sysfont(name):
         for d in FONT_DIRS:
             for p in glob.glob(os.path.join(d, "**", "*.[OoTt][Tt][Ff]"), recursive=True):
                 _sysfonts.setdefault(font_key(os.path.splitext(os.path.basename(p))[0]), p)
-    return _sysfonts.get(font_key(name))
+    k = font_key(name)
+    if k not in _sysfonts and k.startswith("lucidahandwriting"):
+        k = "lumanosimo"
+    return _sysfonts.get(k)
 
 
 DOC_FONTS = ["Arial", "Times New Roman", "Calibri", "Carlito", "Cambria", "Caladea", "Georgia", "Verdana", "Tahoma", "Trebuchet MS", "Garamond",
@@ -82,7 +85,13 @@ def doc_fonts():
     return [n for n in DOC_FONTS if sysfont(n) or sysfont(n + " Regular") or sysfont(n + " Bold")]
 
 
+# Free metric-compatible stand-ins when the licensed original isn't installed.
+FONT_ALIASES = {"Lucida Handwriting": "Lumanosimo"}
+
+
 def family_file(label, bold, italic):
+    if label in FONT_ALIASES and not sysfont(label):
+        label = FONT_ALIASES[label]
     style = (" Bold" if bold else "") + (" Italic" if italic else "")
     for name in ([label + style, label + style.replace("Italic", "Oblique")] if style else []) + [label, label + " Regular", label + " Bold"]:
         path = sysfont(name)
@@ -701,7 +710,7 @@ FONT_LIST = [("Arial", "Sans"), ("Verdana", "Sans"), ("Trebuchet MS", "Sans"), (
              ("Courier New", "Mono"), ("Andale Mono", "Mono"),
              ("Arial Black", "Display"), ("Impact", "Display"), ("Skia", "Display"), ("Herculanum", "Display"),
              ("Trattatello", "Display"), ("Luminari", "Display"), ("Chalkduster", "Display"),
-             ("Lucida Handwriting", "Handwriting"), ("Courgette", "Handwriting"), ("Kalam", "Handwriting"),
+             ("Lumanosimo", "Handwriting"), ("Kalam", "Handwriting"),
              ("Comic Sans MS", "Handwriting"), ("Bradley Hand", "Handwriting"), ("Brush Script MT", "Handwriting"),
              ("Apple Chancery", "Handwriting"), ("Zapfino", "Handwriting")]
 
