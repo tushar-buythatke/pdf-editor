@@ -28,6 +28,7 @@ const UI = (() => {
       const p = h('div', 'pop ' + cls);
       build(p, closePop);
       document.body.append(p);
+      if (matchMedia('(max-width: 760px)').matches) { btn.classList.add('open'); openPop = { btn, pop: p }; return; }  // CSS makes it a sheet
       const r = btn.getBoundingClientRect(), pr = p.getBoundingClientRect();
       let x = r.left + r.width / 2 - pr.width / 2, y = r.bottom + 8;
       if (y + pr.height > innerHeight - 8) y = r.top - pr.height - 8;

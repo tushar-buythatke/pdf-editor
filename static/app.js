@@ -39,6 +39,7 @@ const S = {
 };
 const api = (p, q = {}) => `/api/${p}?` + new URLSearchParams({ id: S.id, ...q });
 const viewer = $('#viewer'), pagesBox = $('#pages'), pbar = $('#pbar');
+const isMobile = () => matchMedia('(max-width: 760px)').matches;
 const clone = o => JSON.parse(JSON.stringify(o));
 const snap = () => JSON.stringify(S.objs);
 
@@ -143,6 +144,7 @@ async function openFile(file) {
   Object.assign(S, { file, srvLog: [], id: j.id, name: file.name, pages: j.pages, spanFonts: new Set(), objs: [], hist: [], fut: [], sel: null, editObj: null });
   document.body.classList.remove('empty');
   document.title = file.name + ' — Folio';
+  $('#docname').textContent = file.name;
   syncUndo();
   viewer.scrollTop = 0;
   fitWidth();
@@ -170,7 +172,15 @@ async function download() {
   const objs = S.objs.map(o => o.type === 'text' ? { ...o, lines: textLines(o) } : o);
   const blob = await call(api('export'), { method: 'POST', body: JSON.stringify({ objs }) });
   if (!blob) return;
-  const a = h('a', '', { href: URL.createObjectURL(blob), download: S.name.replace(/\.pdf$/i, '') + '-edited.pdf' });
+  const fname = S.name.replace(/\.pdf$/i, '') + '-edited.pdf';
+  const iOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (iOS) {
+    // iOS: the share sheet saves to Files reliably; fall back to opening the PDF
+    const f = new File([blob], fname, { type: 'application/pdf' });
+    try { if (navigator.canShare?.({ files: [f] })) { await navigator.share({ files: [f], title: fname }); return; } } catch (err) { if (err.name === 'AbortError') return; }
+    const u = URL.createObjectURL(blob); if (!window.open(u, '_blank')) location.href = u; return;
+  }
+  const a = h('a', '', { href: URL.createObjectURL(blob), download: fname });
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   toast('Downloaded ' + a.download);
@@ -203,7 +213,7 @@ function build() {
     pagesBox.append(el);
     io.observe(el);
     const t = h('div', 'thumb');
-    t.dataset.n = n; t.draggable = true;
+    t.dataset.n = n;
     t.innerHTML = `<div class="tim"><img loading="lazy" alt="" style="aspect-ratio:${p.w}/${p.h}" src="${api('page', { n, s: 0.3, v: S.ver })}">
       <div class="tact"><button data-p="rotate" data-deg="90" title="Rotate">${ICO.rotr}</button><button data-p="dup" title="Duplicate">${ICO.dup}</button>
       <button data-p="blank" title="Insert blank page after">${ICO.plus}</button><button data-p="delete" title="Delete" ${S.pages.length > 1 ? '' : 'disabled'}>${ICO.del}</button></div></div><span>${n + 1}</span>`;
@@ -942,6 +952,7 @@ function renderBar() {
 // Float the bar above the selection; dock it under the toolbar otherwise.
 function positionBar() {
   if (pbar.hidden) return;
+  if (isMobile()) { pbar.style.left = pbar.style.top = ''; return; }
   const el = (S.sel && objEl(S.sel)) || S.editing?.el, vr = viewer.getBoundingClientRect();
   const bw = pbar.offsetWidth, bh = pbar.offsetHeight;
   let x = vr.left + vr.width / 2 - bw / 2, y = vr.top + 12;
@@ -980,11 +991,12 @@ pagesBox.addEventListener('pointerdown', e => {
     const o = objById(oel.dataset.id);
     e.preventDefault();
     if (S.painter && o.type === 'text') { mutate(o, clone(S.painter)); stopPainter(); select(o.id); return; }
-    if (o.type === 'text' && S.sel === o.id && (tool === 'text' || e.detail > 1 || oel.classList.contains('selected'))) {
-      select(o.id); editText(o.id); caretAt(e.clientX, e.clientY); return;
-    }
+    const wasSel = S.sel === o.id;
     select(o.id);
-    return moveDrag(e, o, pg, pt);
+    longPress(e, o);
+    const edit = () => { if (o.type === 'text') { editText(o.id); caretAt(e.clientX, e.clientY); } };
+    if (o.type === 'text' && (tool === 'text' || e.detail > 1)) return edit();
+    return moveDrag(e, o, pg, pt, wasSel ? edit : null);
   }
   if (tool === 'select') {
     const d = e.target.closest('.span');
@@ -1075,7 +1087,7 @@ pagesBox.addEventListener('dblclick', e => {
   if (oel && S.editObj !== oel.dataset.id) { select(oel.dataset.id); editText(oel.dataset.id); caretAt(e.clientX, e.clientY); }
 });
 
-function moveDrag(e, o, pg, pt) {
+function moveDrag(e, o, pg, pt, onTap) {
   const b = snap(), start = pt(e), ox = o.x, oy = o.y, el = objEl(o.id);
   pg.setPointerCapture(e.pointerId);
   let moved = false;
@@ -1087,7 +1099,10 @@ function moveDrag(e, o, pg, pt) {
     el.style.left = o.x * S.zoom + 'px'; el.style.top = o.y * S.zoom + 'px'; positionBar();
   };
   pg.addEventListener('pointermove', move);
-  pg.addEventListener('pointerup', () => { pg.removeEventListener('pointermove', move); el.classList.remove('dragging'); if (moved) record(b); }, { once: true });
+  pg.addEventListener('pointerup', () => {
+    pg.removeEventListener('pointermove', move); el.classList.remove('dragging');
+    if (moved) record(b); else if (onTap && !S.ctx) onTap();
+  }, { once: true });
 }
 
 function handleDrag(e, o, hd, pt) {
@@ -1239,23 +1254,38 @@ thumbs.addEventListener('click', e => {
   if (!t) return;
   const n = +t.dataset.n;
   if (b) return pageOp(b.dataset.p, n, { deg: +b.dataset.deg });
+  if (t._dragged) return;
   pageEl(n)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.body.classList.remove('pages-open');
 });
-thumbs.addEventListener('dragstart', e => e.dataTransfer.setData('text/x-page', e.target.closest('.thumb').dataset.n));
-thumbs.addEventListener('dragover', e => {
-  const t = e.target.closest('.thumb');
-  if (!t || !e.dataTransfer.types.includes('text/x-page')) return;
-  e.preventDefault();
-  $$('.thumb.over').forEach(x => x.classList.remove('over')); t.classList.add('over');
+// Reorder by pointer drag (mouse right away, touch after a short hold so the list still scrolls).
+thumbs.addEventListener('pointerdown', e => {
+  const t = e.target.closest('.thumb'); if (!t || e.target.closest('.tact')) return;
+  const from = +t.dataset.n, sx = e.clientX, sy = e.clientY;
+  let ghost = null, over = null, timer = null;
+  const begin = () => {
+    ghost = t.cloneNode(true); ghost.classList.add('ghost'); document.body.append(ghost); t.classList.add('lifting');
+    try { thumbs.setPointerCapture(e.pointerId); } catch (_) {}
+    navigator.vibrate?.(10);
+  };
+  if (e.pointerType === 'touch') timer = setTimeout(begin, 280);
+  const move = ev => {
+    if (!ghost) { if (e.pointerType !== 'touch' && Math.hypot(ev.clientX - sx, ev.clientY - sy) > 6) begin(); else { if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > 8) clearTimeout(timer); return; } }
+    ev.preventDefault();
+    Object.assign(ghost.style, { left: ev.clientX - 48 + 'px', top: ev.clientY - 40 + 'px' });
+    const hit = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.thumb:not(.ghost)');
+    if (hit !== over) { over?.classList.remove('over'); over = hit; over?.classList.add('over'); }
+  };
+  const up = () => {
+    clearTimeout(timer); removeEventListener('pointermove', move); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+    if (!ghost) return;
+    ghost.remove(); t.classList.remove('lifting'); over?.classList.remove('over');
+    t._dragged = true; setTimeout(() => { t._dragged = false; });
+    if (over && +over.dataset.n !== from) pageOp('move', from, { to: +over.dataset.n });
+  };
+  addEventListener('pointermove', move, { passive: false }); addEventListener('pointerup', up); addEventListener('pointercancel', up);
 });
-thumbs.addEventListener('drop', e => {
-  const t = e.target.closest('.thumb');
-  $$('.thumb.over').forEach(x => x.classList.remove('over'));
-  if (!t) return;
-  e.preventDefault(); e.stopPropagation();
-  const from = +e.dataTransfer.getData('text/x-page'), to = +t.dataset.n;
-  if (from !== to) pageOp('move', from, { to });
-});
+thumbs.addEventListener('touchmove', e => { if ($('.thumb.ghost')) e.preventDefault(); }, { passive: false });
 $('#addpage').onclick = () => pageOp('blank', S.pages.length - 1);
 viewer.addEventListener('scroll', () => {
   const mid = viewer.getBoundingClientRect().top + viewer.clientHeight / 3;
@@ -1348,7 +1378,7 @@ document.addEventListener('keydown', e => {
   const tip = $('#tip'); let timer;
   document.addEventListener('pointerover', e => {
     const t = e.target.closest('[data-tip]'); clearTimeout(timer); tip.classList.remove('on');
-    if (!t || t.classList.contains('open')) return;
+    if (!t || t.classList.contains('open') || e.pointerType !== 'mouse') return;
     timer = setTimeout(() => {
       tip.textContent = t.dataset.tip; const r = t.getBoundingClientRect();
       tip.style.left = Math.max(6, Math.min(innerWidth - tip.offsetWidth - 6, r.left + r.width / 2 - tip.offsetWidth / 2)) + 'px';
@@ -1431,3 +1461,86 @@ function dotMatrix(canvas, text, gap = 11) {
   build(); raf = requestAnimationFrame(draw);
 }
 setTool('select');
+
+
+// ---------- touch: pinch zoom, long-press menu, sheets, drawer, keyboard ----------
+(function pinch() {
+  let d0 = 0, z0 = 1, mid = null, live = 1;
+  const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  viewer.addEventListener('touchstart', e => {
+    if (e.touches.length !== 2 || !S.id) return;
+    d0 = dist(e.touches); z0 = S.zoom; live = 1;
+    const r = viewer.getBoundingClientRect();
+    mid = { x: (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left, y: (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top };
+    pagesBox.style.transformOrigin = `${mid.x + viewer.scrollLeft}px ${mid.y + viewer.scrollTop}px`;
+  }, { passive: true });
+  viewer.addEventListener('touchmove', e => {
+    if (e.touches.length !== 2 || !d0) return;
+    live = Math.min(4 / z0, Math.max(0.25 / z0, dist(e.touches) / d0));
+    pagesBox.style.transform = `scale(${live})`;
+  }, { passive: true });
+  viewer.addEventListener('touchend', e => {
+    if (!d0 || e.touches.length) return;
+    d0 = 0; pagesBox.style.transform = '';
+    if (Math.abs(live - 1) < 0.02) return;
+    const ax = (viewer.scrollLeft + mid.x) * live - mid.x, ay = (viewer.scrollTop + mid.y) * live - mid.y;
+    setZoom(z0 * live);
+    viewer.scrollLeft = ax; viewer.scrollTop = ay;
+  });
+  // iOS Safari: keep its own page zoom out of the way
+  document.addEventListener('gesturestart', e => e.preventDefault());
+})();
+
+function ctxMenu(o, x, y) {
+  UI.closePop();
+  const m = h('div', 'pop ctxmenu');
+  const item = (label, fn, cls = '') => { const b = h('button', cls, { type: 'button', textContent: label }); b.onclick = () => { m.remove(); S.ctx = null; fn(); }; m.append(b); };
+  if (o.type === 'text') item('Edit text', () => editText(o.id));
+  item('Duplicate', () => duplicate(o));
+  item('Bring to front', () => reorder(o, true));
+  item('Send to back', () => reorder(o, false));
+  item('Delete', () => removeObj(o), 'danger');
+  document.body.append(m);
+  if (!isMobile()) { m.style.left = Math.min(x, innerWidth - m.offsetWidth - 8) + 'px'; m.style.top = Math.min(y, innerHeight - m.offsetHeight - 8) + 'px'; }
+  S.ctx = m;
+  setTimeout(() => addEventListener('pointerdown', function off(ev) { if (!m.contains(ev.target)) { m.remove(); S.ctx = null; removeEventListener('pointerdown', off, true); } }, true));
+}
+function longPress(e, o) {
+  if (e.pointerType !== 'touch') return;
+  const sx = e.clientX, sy = e.clientY;
+  const timer = setTimeout(() => { navigator.vibrate?.(12); ctxMenu(o, sx, sy); }, 520);
+  const cancel = ev => { if (ev.type !== 'pointermove' || Math.hypot(ev.clientX - sx, ev.clientY - sy) > 8) { clearTimeout(timer); off(); } };
+  const off = () => { removeEventListener('pointermove', cancel); removeEventListener('pointerup', cancel); removeEventListener('pointercancel', cancel); };
+  addEventListener('pointermove', cancel); addEventListener('pointerup', cancel); addEventListener('pointercancel', cancel);
+}
+pagesBox.addEventListener('contextmenu', e => {
+  const oel = e.target.closest('.obj'); if (!oel) return;
+  e.preventDefault(); const o = objById(oel.dataset.id); select(o.id); ctxMenu(o, e.clientX, e.clientY);
+});
+
+// pages drawer (the backdrop lives inside the framed shell so the drawer can sit above it)
+$('.shell').append($('#scrim'));
+const togglePages = open => document.body.classList.toggle('pages-open', open);
+$('#pagesbtn').onclick = () => togglePages(!document.body.classList.contains('pages-open'));
+$('#scrim').onclick = () => togglePages(false);
+$$('[data-proxy]').forEach(b => b.onclick = () => { togglePages(false); $(b.dataset.proxy).click(); });
+
+// swipe a sheet down to dismiss it
+function swipeDismiss(el, handle, onClose) {
+  el.addEventListener('pointerdown', e => {
+    if (!isMobile() || e.pointerType === 'mouse' || !handle(e)) return;
+    const sy = e.clientY; let dy = 0;
+    const mv = ev => { dy = Math.max(0, ev.clientY - sy); el.style.transform = `translateY(${dy}px)`; };
+    const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up); el.style.transform = ''; if (dy > 70) onClose(); };
+    addEventListener('pointermove', mv); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+  });
+}
+swipeDismiss(pbar, e => e.clientY - pbar.getBoundingClientRect().top < 30 || e.target.closest('.ptag'), () => { if (S.sel) select(null); else pbar.hidden = true; });
+swipeDismiss($('#rail'), e => !!e.target.closest('.sheet-head'), () => togglePages(false));
+
+// keep the text being typed above the on-screen keyboard
+window.visualViewport?.addEventListener('resize', () => {
+  const el = S.editObj ? objEl(S.editObj) : S.editing?.el; if (!el) return;
+  const r = el.getBoundingClientRect(), vv = visualViewport;
+  if (r.bottom > vv.offsetTop + vv.height - 12 || r.top < vv.offsetTop) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+});

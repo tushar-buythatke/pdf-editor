@@ -1721,7 +1721,7 @@ class Handler(BaseHTTPRequestHandler):
                 img = {".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/png"}.get(ext)
                 if img:
                     return self.send(200, open(path, "rb").read(), img, {"Cache-Control": "max-age=86400"})
-                ctype = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".ttf": "font/ttf"}.get(ext, "application/octet-stream")
+                ctype = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".ttf": "font/ttf", ".webmanifest": "application/manifest+json"}.get(ext, "application/octet-stream")
                 return self.send(200, open(path, "rb").read(), ctype + "; charset=utf-8", {"Cache-Control": "no-cache"})
             if u.path == "/api/fonts":
                 return self.send(200, doc_fonts())
