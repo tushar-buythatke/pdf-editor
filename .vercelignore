@@ -1,0 +1,10 @@
+.venv
+__pycache__
+*.pdf
+test_*.py
+tests
+make_fixture.py
+lint_names.py
+simcheck.py
+*.swift
+run.sh
