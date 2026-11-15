@@ -229,11 +229,15 @@ async function reload(n) {
   if (!el) return;
   el.dataset.loaded = 1;
   const v = ++S.ver;
-  const src = api('page', { n, s: (S.zoom * devicePixelRatio).toFixed(2), v });
+  // iOS can't hold very large images: keep the render under ~4096px wide.
+  const pw = (el.offsetWidth || 600) / (S.zoom || 1);
+  const sc = Math.min(S.zoom * devicePixelRatio, 4096 / Math.max(pw, 1));
+  const src = api('page', { n, s: sc.toFixed(2), v });
   const pre = new Image(); pre.src = src;
-  const [spans] = await Promise.all([call(api('spans', { n })), pre.decode().catch(() => {})]);
+  const [spans, ok] = await Promise.all([call(api('spans', { n })), pre.decode().then(() => true, () => false)]);
   if (!el.isConnected) return;
-  $('img', el).src = src;
+  // Keep the previous render if the sharper one failed to load.
+  if (ok) $('img', el).src = src;
   const th = $(`.thumb[data-n="${n}"] img`);
   if (th) th.src = api('page', { n, s: 0.3, v });
   if (spans) renderSpans(el, n, spans);

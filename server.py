@@ -1678,6 +1678,23 @@ class Session:
         return out.tobytes(garbage=3, deflate=True, deflate_fonts=True)
 
 
+# Vercel rejects responses over ~4.5 MB and iOS drops huge canvases: cap pixels, fall back to JPEG.
+def page_image(page, scale, max_px=16_000_000, max_bytes=3_500_000):
+    w, h = page.rect.width * scale, page.rect.height * scale
+    if w * h > max_px:
+        scale *= (max_px / (w * h)) ** 0.5
+    pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False)
+    png = pix.tobytes("png")
+    if len(png) <= max_bytes:
+        return png, "image/png"
+    for qual in (88, 78, 65):
+        jpg = pix.tobytes("jpeg", jpg_quality=qual)
+        if len(jpg) <= max_bytes:
+            return jpg, "image/jpeg"
+    small = page.get_pixmap(matrix=pymupdf.Matrix(scale * 0.7, scale * 0.7), alpha=False)
+    return small.tobytes("jpeg", jpg_quality=70), "image/jpeg"
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -1742,8 +1759,8 @@ class Handler(BaseHTTPRequestHandler):
             s = self.sess(q)
             if u.path == "/api/page":
                 n, scale = int(q["n"][0]), min(float(q.get("s", ["1.5"])[0]), 6)
-                png = s.doc[n].get_pixmap(matrix=pymupdf.Matrix(scale, scale), alpha=False).tobytes("png")
-                return self.send(200, png, "image/png", {"Cache-Control": "no-store"})
+                img, ctype = page_image(s.doc[n], scale)
+                return self.send(200, img, ctype, {"Cache-Control": "no-store"})
             if u.path == "/api/spans":
                 return self.send(200, s.spans(int(q["n"][0])))
             if u.path == "/api/match":
