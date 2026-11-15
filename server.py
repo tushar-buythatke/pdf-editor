@@ -701,6 +701,7 @@ FONT_LIST = [("Arial", "Sans"), ("Verdana", "Sans"), ("Trebuchet MS", "Sans"), (
              ("Courier New", "Mono"), ("Andale Mono", "Mono"),
              ("Arial Black", "Display"), ("Impact", "Display"), ("Skia", "Display"), ("Herculanum", "Display"),
              ("Trattatello", "Display"), ("Luminari", "Display"), ("Chalkduster", "Display"),
+             ("Lucida Handwriting", "Handwriting"), ("Courgette", "Handwriting"), ("Kalam", "Handwriting"),
              ("Comic Sans MS", "Handwriting"), ("Bradley Hand", "Handwriting"), ("Brush Script MT", "Handwriting"),
              ("Apple Chancery", "Handwriting"), ("Zapfino", "Handwriting")]
 

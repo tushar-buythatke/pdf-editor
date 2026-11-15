@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 *.pdf
 .DS_Store
+# Licensed fonts you own stay local
+fonts/Lucida*
+fonts/LHANDW*
