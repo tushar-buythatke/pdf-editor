@@ -171,6 +171,14 @@ def test_underline_single_clean_rule():
     assert len(segs) == 2  # one clean gap at the y descender, no stray dots
 
 
+
+def test_underline_covers_typed_trailing_spaces():
+    bare = render_objects(blank(), [txt(text="Gautam", size=14, underline={"on": True})])[0]
+    padded = render_objects(blank(), [txt(text="Gautam      ", size=14, underline={"on": True})])[0]
+    w = lambda p: [d for d in p.get_drawings() if d["type"] == "s"][0]["rect"].width
+    assert w(padded) > w(bare) + 15  # the spaces the user typed are underlined too
+
+
 if __name__ == "__main__":  # run every test_* in order
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

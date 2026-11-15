@@ -955,7 +955,8 @@ def draw_text_obj(page, o):
     for line, hard in lines:
         if para_first:
             y += pb; num += 1
-        line = _cased(line.rstrip(" "), case)
+        # Typed trailing spaces stay (so underline/strike/marker cover them); soft-wrap spaces go.
+        line = _cased(line if hard else line.rstrip(" "), case)
         glyphs, cx = [], 0.0
         for c in line:
             gs = fs

@@ -565,11 +565,14 @@ function measure(o, el) {
         if (!cur || rc.top > cur.top + T.top + rc.height * 0.5) { cur = { text: '', hard: false, top: rc.top - T.top, xs: rc.left - T.left, xe: rc.left - T.left, chars: [] }; out.push(cur); }
         cur.text += t[i];
         if (t[i].trim()) cur.xe = rc.right - T.left;
+        cur.xeAll = rc.right - T.left;
         cur.chars.push({ c: t[i], x: rc.left - T.left, w: rc.width });
       }
     }
     if (out.length === start) out.push({ text: '', hard: true, top: 0, xs: 0, xe: 0, chars: [] });
-    out[out.length - 1].hard = true;
+    // A paragraph's last line keeps its typed trailing spaces, like the export.
+    const last = out[out.length - 1]; last.hard = true;
+    if (last.xeAll > last.xe) last.xe = last.xeAll;
   }
   el.style.transform = tf;
   return out;
